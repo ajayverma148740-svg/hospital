@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexa_hospital_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: nexa_admin
+      POSTGRES_PASSWORD: nexa_secure_password_2025
+      POSTGRES_DB: nexa_hospital_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - nexa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexa_admin -d nexa_hospital_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  nexa_pgdata:

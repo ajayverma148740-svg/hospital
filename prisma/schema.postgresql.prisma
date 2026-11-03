@@ -1,0 +1,306 @@
+// PostgreSQL Production Prisma Schema for Nexa Hospital
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Roles & Permissions
+model Role {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  users       User[]
+  permissions Permission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  roleId      String
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  action      String
+  resource    String
+  createdAt   DateTime @default(now())
+
+  @@unique([roleId, action, resource])
+  @@map("permissions")
+}
+
+// 2. Users (Admin, Doctor, Staff)
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  phone        String?
+  avatar       String?
+  isActive     Boolean    @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  doctor       Doctor?
+  auditLogs    AuditLog[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// 3. Departments
+model Department {
+  id                String             @id @default(cuid())
+  name              String             @unique
+  slug              String             @unique
+  shortDescription  String
+  fullDescription   String
+  icon              String?
+  image             String?
+  services          String?
+  isPublished       Boolean            @default(true)
+  sortOrder         Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  doctorDepartments DoctorDepartment[]
+  appointments      Appointment[]
+
+  @@index([slug])
+  @@map("departments")
+}
+
+// 4. Doctors
+model Doctor {
+  id                String             @id @default(cuid())
+  userId            String?            @unique
+  user              User?              @relation(fields: [userId], references: [id])
+  name              String
+  slug              String             @unique
+  email             String
+  phone             String?
+  avatar            String?
+  designation       String
+  qualification     String
+  experienceYears   Int                @default(5)
+  biography         String
+  opdSchedule       String
+  consultationFee   Int                @default(800)
+  rating            Float              @default(4.9)
+  reviewCount       Int                @default(120)
+  isActive          Boolean            @default(true)
+  isFeatured        Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  doctorDepartments DoctorDepartment[]
+  schedules         DoctorSchedule[]
+  appointmentSlots  AppointmentSlot[]
+  appointments      Appointment[]
+
+  @@index([slug])
+  @@map("doctors")
+}
+
+// 5. Doctor-Departments Junction (M:N)
+model DoctorDepartment {
+  id           String     @id @default(cuid())
+  doctorId     String
+  doctor       Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  isPrimary    Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@unique([doctorId, departmentId])
+  @@map("doctor_departments")
+}
+
+// 6. Doctor Schedules
+model DoctorSchedule {
+  id           String   @id @default(cuid())
+  doctorId     String
+  doctor       Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dayOfWeek    Int
+  startTime    String
+  endTime      String
+  slotDuration Int      @default(30)
+  maxPatients  Int      @default(20)
+  isActive     Boolean  @default(true)
+
+  @@index([doctorId, dayOfWeek])
+  @@map("doctor_schedules")
+}
+
+// 7. Appointment Slots
+model AppointmentSlot {
+  id          String   @id @default(cuid())
+  doctorId    String
+  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date        String
+  time        String
+  isBooked    Boolean  @default(false)
+  maxCapacity Int      @default(1)
+  bookedCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@unique([doctorId, date, time])
+  @@index([doctorId, date])
+  @@map("appointment_slots")
+}
+
+// 8. Patients
+model Patient {
+  id           String        @id @default(cuid())
+  fullName     String
+  phone        String
+  email        String?
+  age          Int?
+  gender       String?
+  address      String?
+  city         String?       @default("Lucknow")
+  state        String?       @default("Uttar Pradesh")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  appointments Appointment[]
+
+  @@index([phone])
+  @@map("patients")
+}
+
+// 9. Appointments
+model Appointment {
+  id                 String     @id @default(cuid())
+  appointmentId      String     @unique
+  patientId          String
+  patient            Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId           String
+  doctor             Doctor     @relation(fields: [doctorId], references: [id])
+  departmentId       String
+  department         Department @relation(fields: [departmentId], references: [id])
+  appointmentDate    String
+  timeSlot           String
+  status             String     @default("PENDING")
+  message            String?
+  cancellationReason String?
+  internalNotes      String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([appointmentId])
+  @@index([appointmentDate])
+  @@index([status])
+  @@map("appointments")
+}
+
+// 10. Patient Enquiries
+model Enquiry {
+  id            String    @id @default(cuid())
+  fullName      String
+  phone         String
+  email         String?
+  subject       String
+  message       String
+  category      String?   @default("General")
+  status        String    @default("NEW")
+  assignedTo    String?
+  internalNotes String?
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+  @@map("enquiries")
+}
+
+// 11. Notifications
+model Notification {
+  id          String    @id @default(cuid())
+  recipient   String
+  type        String
+  subject     String?
+  body        String
+  status      String    @default("SENT")
+  referenceId String?
+  sentAt      DateTime  @default(now())
+
+  @@map("notifications")
+}
+
+// 12. Testimonials
+model Testimonial {
+  id          String   @id @default(cuid())
+  patientName String
+  treatment   String
+  doctorName  String?
+  rating      Int      @default(5)
+  comment     String
+  location    String?  @default("Lucknow, UP")
+  isVerified  Boolean  @default(true)
+  isApproved  Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@map("testimonials")
+}
+
+// 13. Gallery
+model GalleryItem {
+  id        String   @id @default(cuid())
+  title     String
+  category  String
+  imageUrl  String
+  caption   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("gallery")
+}
+
+// 14. FAQs
+model Faq {
+  id          String   @id @default(cuid())
+  question    String
+  answer      String
+  category    String   @default("General")
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+// 15. Website Settings
+model WebsiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  category  String   @default("general")
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@map("website_settings")
+}
+
+// 16. Audit Logs
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName  String?
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([entity])
+  @@index([action])
+  @@map("audit_logs")
+}

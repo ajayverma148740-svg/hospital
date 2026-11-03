@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Roles & Permissions
+model Role {
+  id          String       @id @default(cuid())
+  name        String       @unique // ADMIN, DOCTOR, RECEPTIONIST, NURSE
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  users       User[]
+  permissions Permission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  roleId      String
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  action      String   // e.g. manage_appointments, edit_doctors, view_enquiries, edit_cms
+  resource    String   // e.g. appointments, doctors, cms, settings
+  createdAt   DateTime @default(now())
+
+  @@unique([roleId, action, resource])
+  @@map("permissions")
+}
+
+// 2. Users (Admin, Doctor, Staff)
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  phone        String?
+  avatar       String?
+  isActive     Boolean    @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  doctor       Doctor?
+  auditLogs    AuditLog[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// 3. Departments
+model Department {
+  id                String             @id @default(cuid())
+  name              String             @unique
+  slug              String             @unique
+  shortDescription  String
+  fullDescription   String
+  icon              String?            // Lucide icon name or svg
+  image             String?
+  services          String?            // JSON string array of services offered
+  isPublished       Boolean            @default(true)
+  sortOrder         Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  doctorDepartments DoctorDepartment[]
+  appointments      Appointment[]
+
+  @@index([slug])
+  @@map("departments")
+}
+
+// 4. Doctors
+model Doctor {
+  id                String             @id @default(cuid())
+  userId            String?            @unique
+  user              User?              @relation(fields: [userId], references: [id])
+  name              String
+  slug              String             @unique
+  email             String
+  phone             String?
+  avatar            String?
+  designation       String             // e.g. Senior Consultant Cardiologist
+  qualification     String             // e.g. MBBS, MD, DM (Cardiology)
+  experienceYears   Int                @default(5)
+  biography         String
+  opdSchedule       String             // e.g. Mon-Sat: 10:00 AM - 02:00 PM
+  consultationFee   Int                @default(800)
+  rating            Float              @default(4.9)
+  reviewCount       Int                @default(120)
+  isActive          Boolean            @default(true)
+  isFeatured        Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  doctorDepartments DoctorDepartment[]
+  schedules         DoctorSchedule[]
+  appointmentSlots  AppointmentSlot[]
+  appointments      Appointment[]
+
+  @@index([slug])
+  @@map("doctors")
+}
+
+// 5. Doctor-Departments Junction (M:N)
+model DoctorDepartment {
+  id           String     @id @default(cuid())
+  doctorId     String
+  doctor       Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  isPrimary    Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@unique([doctorId, departmentId])
+  @@map("doctor_departments")
+}
+
+// 6. Doctor Schedules (OPD Days and times)
+model DoctorSchedule {
+  id        String   @id @default(cuid())
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dayOfWeek Int      // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startTime String   // e.g. "09:00"
+  endTime   String   // e.g. "14:00"
+  slotDuration Int   @default(30) // in minutes
+  maxPatients  Int   @default(20)
+  isActive  Boolean  @default(true)
+
+  @@index([doctorId, dayOfWeek])
+  @@map("doctor_schedules")
+}
+
+// 7. Appointment Slots (Generated or managed specific slots)
+model AppointmentSlot {
+  id           String   @id @default(cuid())
+  doctorId     String
+  doctor       Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date         String   // YYYY-MM-DD
+  time         String   // HH:MM (e.g. 10:00 AM)
+  isBooked     Boolean  @default(false)
+  maxCapacity  Int      @default(1)
+  bookedCount  Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@unique([doctorId, date, time])
+  @@index([doctorId, date])
+  @@map("appointment_slots")
+}
+
+// 8. Patients
+model Patient {
+  id           String        @id @default(cuid())
+  fullName     String
+  phone        String
+  email        String?
+  age          Int?
+  gender       String?       // Male, Female, Other
+  address      String?
+  city         String?       @default("Lucknow")
+  state        String?       @default("Uttar Pradesh")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  appointments Appointment[]
+
+  @@index([phone])
+  @@map("patients")
+}
+
+// 9. Appointments
+model Appointment {
+  id                 String     @id @default(cuid())
+  appointmentId      String     @unique // e.g. NXA-2025-XXXXX
+  patientId          String
+  patient            Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId           String
+  doctor             Doctor     @relation(fields: [doctorId], references: [id])
+  departmentId       String
+  department         Department @relation(fields: [departmentId], references: [id])
+  appointmentDate    String     // YYYY-MM-DD
+  timeSlot           String     // e.g. "10:30 AM"
+  status             String     @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
+  message            String?
+  cancellationReason String?
+  internalNotes      String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([appointmentId])
+  @@index([appointmentDate])
+  @@index([status])
+  @@map("appointments")
+}
+
+// 10. Patient Enquiries
+model Enquiry {
+  id            String    @id @default(cuid())
+  fullName      String
+  phone         String
+  email         String?
+  subject       String
+  message       String
+  category      String?   @default("General") // General, OPD, Billing, TPA_Insurance, Feedback
+  status        String    @default("NEW")     // NEW, IN_REVIEW, RESOLVED, CLOSED
+  assignedTo    String?
+  internalNotes String?
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+  @@map("enquiries")
+}
+
+// 11. Notifications (SMS/Email logs)
+model Notification {
+  id         String    @id @default(cuid())
+  recipient  String    // phone or email
+  type       String    // SMS, EMAIL, WHATSAPP, SYSTEM
+  subject    String?
+  body       String
+  status     String    @default("SENT") // PENDING, SENT, FAILED
+  referenceId String?  // e.g. appointmentId
+  sentAt     DateTime  @default(now())
+
+  @@map("notifications")
+}
+
+// 12. Patient Testimonials
+model Testimonial {
+  id          String   @id @default(cuid())
+  patientName String
+  treatment   String   // e.g. Knee Replacement Surgery, Angioplasty, Cataract
+  doctorName  String?
+  rating      Int      @default(5)
+  comment     String
+  location    String?  @default("Lucknow, UP")
+  isVerified  Boolean  @default(true)
+  isApproved  Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@map("testimonials")
+}
+
+// 13. Gallery
+model GalleryItem {
+  id          String   @id @default(cuid())
+  title       String
+  category    String   // Infrastructure, Operation Theatre, ICU & Rooms, Diagnostics, Events
+  imageUrl    String
+  caption     String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@map("gallery")
+}
+
+// 14. FAQs
+model Faq {
+  id          String   @id @default(cuid())
+  question    String
+  answer      String
+  category    String   @default("General") // General, Appointment, Insurance & Cashless, Emergency, Visiting Hours
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+// 15. Website Settings (CMS)
+model WebsiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  category  String   @default("general") // general, contact, emergency, hero, hours
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@map("website_settings")
+}
+
+// 16. Audit Logs
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName  String?
+  action    String   // e.g. APPOINTMENT_CONFIRMED, DOCTOR_CREATED, ENQUIRY_RESOLVED, LOGIN
+  entity    String   // e.g. appointments, doctors, enquiries, settings
+  entityId  String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([entity])
+  @@index([action])
+  @@map("audit_logs")
+}
